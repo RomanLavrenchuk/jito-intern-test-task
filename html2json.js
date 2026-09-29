@@ -1,8 +1,38 @@
 function convertHtml2JsonAndSet() {
-  const htmlTextAreaValue = document.getElementById("html").value;
-  const jsonObj = html2json(htmlTextAreaValue);
-  const jsonArea = document.getElementById("json");
-  jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
+    const htmlTextAreaValue = document.getElementById('html').value;
+    const jsonObj = html2json(htmlTextAreaValue);
+    const jsonArea = document.getElementById('json');
+    jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
+}
+
+function tokenize(html) {
+    const tokens = [];
+    let i = 0;
+
+    while (i < html.length) {
+        // Look for the next opening bracket '<'
+        const nextTag = html.indexOf('<', i);
+
+        if (nextTag === -1) {
+            // No '<' found: the rest of the string is plain text
+            const textContent = html.slice(i);
+            if (textContent.length > 0) {
+                tokens.push({ type: 'text', content: textContent });
+            }
+            break; // Exit the loop
+        }
+
+        if (nextTag > i) {
+            // Text exists before the next '<'
+            tokens.push({ type: 'text', content: html.slice(i, nextTag) });
+            i = nextTag; // Move pointer to the '<'
+        } else {
+            // Temporary fallback until Step 2: skip '<' character
+            i++;
+        }
+    }
+
+    return tokens;
 }
 
 /* 
@@ -10,14 +40,11 @@ function convertHtml2JsonAndSet() {
   You can rewrite it completely, just be sure it accepts htmlText as string and outputs json object.
 */
 function html2json(htmlText) {
-  return {
-    "Conversion results": "should be instead of this json obj",
-    "Just to show that it is dynamic value (input length)" : htmlText.length,
-  };
+    return tokenize(htmlText);
 }
 
 function showExample1() {
-  const htmlExample = `<!DOCTYPE html>
+    const htmlExample = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -53,39 +80,39 @@ function showExample1() {
 </body>
 </html>
 `;
-  const jsonContent = {
-    "Comment 1":
-      "You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.",
-    "Comment 2":
-      "When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.",
-  };
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
 
-  document.getElementById("html").value = htmlExample;
-  document.getElementById("json").textContent = JSON.stringify(
-    jsonContent,
-    null,
-    2
-  );
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
 }
 
 function showExample2() {
-  const htmlExample = `<div>
+    const htmlExample = `<div>
 <p>Hello world!</p>
   <button>Click me!</button>
   <textarea>Some very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long string.</textarea>
 </div>
 `;
-  const jsonContent = {
-    "Comment 1":
-      "You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.",
-    "Comment 2":
-      "When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.",
-  };
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
 
-  document.getElementById("html").value = htmlExample;
-  document.getElementById("json").textContent = JSON.stringify(
-    jsonContent,
-    null,
-    2
-  );
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
 }
