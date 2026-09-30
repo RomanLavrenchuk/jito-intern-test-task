@@ -39,11 +39,11 @@ function buildTree(tokens) {
             const newNode = {
                 type: 'element',
                 tag: token.tag,
-                attributes: {},
+                attributes: token.attributes, // Використовуємо зчитані атрибути
                 children: [],
             };
             currentParent.children.push(newNode);
-            stack.push(newNode); // Входимо у вкладений контекст елемента
+            stack.push(newNode);
         } else if (token.type === 'endTag') {
             // Порівнюємо безпосередньо з currentParent.tag для кращої читабельності
             if (stack.length > 1 && currentParent.tag === token.tag) {
@@ -53,6 +53,124 @@ function buildTree(tokens) {
     }
 
     return root;
+}
+
+// Перевірка на пробілові символи (Space, Tab, Newline, Carriage Return, Form Feed)
+function isWhitespace(ch) {
+    return (
+        ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f'
+    );
+}
+
+// Помічник для безпечного встановлення атрибутів (зберігається тільки перше значення)
+function setAttribute(attributes, name, value) {
+    if (!(name in attributes)) {
+        attributes[name] = value;
+    }
+}
+function readAttributes(html, start) {
+    const attributes = Object.create(null);
+    let i = start;
+
+    while (i < html.length) {
+        const ch = html[i];
+
+        // 1. Пропускаємо пробіли
+        if (isWhitespace(ch)) {
+            i++;
+            continue;
+        }
+
+        // 2. Кінець тегу '>'
+        if (ch === '>') {
+            return { attributes, end: i };
+        }
+
+        // 3. Самозакриваючий символ '/' (обробимо детально у Step 5)
+        if (ch === '/') {
+            i++;
+            continue;
+        }
+
+        // 4. Зчитуємо назву атрибута до пробілу, '=', '>' або '/'
+        const nameStart = i;
+        while (
+            i < html.length &&
+            !isWhitespace(html[i]) &&
+            html[i] !== '=' &&
+            html[i] !== '>' &&
+            html[i] !== '/'
+        ) {
+            i++;
+        }
+
+        // Якщо це був некоректний символ (наприклад '=', який йде одразу без назви)
+        if (i === nameStart) {
+            i++;
+            continue;
+        }
+
+        const attrName = html.slice(nameStart, i).toLowerCase();
+
+        // 5. Пропускаємо пробіли перед '='
+        while (i < html.length && isWhitespace(html[i])) {
+            i++;
+        }
+
+        // Якщо після назви немає знака '=', це булевий атрибут (наприклад, disabled)
+        if (i >= html.length || html[i] !== '=') {
+            setAttribute(attributes, attrName, '');
+            continue;
+        }
+
+        // Пропускаємо знак '='
+        i++;
+
+        // Пропускаємо пробіли після '='
+        while (i < html.length && isWhitespace(html[i])) {
+            i++;
+        }
+
+        if (i >= html.length) {
+            setAttribute(attributes, attrName, '');
+            break;
+        }
+
+        const valueStartChar = html[i];
+
+        // Case A: Значення у подвійних або поодиноких лапках
+        if (valueStartChar === '"' || valueStartChar === "'") {
+            const quote = valueStartChar;
+            const closeQuote = html.indexOf(quote, i + 1);
+
+            if (closeQuote === -1) {
+                // Незакрита лапка: вважаємо весь тег некоректним
+                return { attributes, end: -1 };
+            }
+
+            setAttribute(attributes, attrName, html.slice(i + 1, closeQuote));
+            i = closeQuote + 1;
+        }
+        // Case B: Порожнє значення перед закриваючим тегом (наприклад, <div class=>)
+        else if (valueStartChar === '>') {
+            setAttribute(attributes, attrName, '');
+            // Не робимо i++, щоб наступна ітерація побачила '>' і завершила цикл
+        }
+        // Case C: Значення без лапок (unquoted value)
+        else {
+            const valStart = i;
+            while (
+                i < html.length &&
+                !isWhitespace(html[i]) &&
+                html[i] !== '>'
+            ) {
+                i++;
+            }
+            setAttribute(attributes, attrName, html.slice(valStart, i));
+        }
+    }
+
+    return { attributes, end: -1 }; // Завершення рядка без закриваючого '>'
 }
 
 function tokenize(html) {
@@ -88,32 +206,32 @@ function tokenize(html) {
             continue;
         }
 
-        // 3. Find closing '>'
-        const closeBracket = html.indexOf('>', i);
-        if (closeBracket === -1) {
-            // Unclosed tag: treat remaining input as text
+        // 3. Зчитуємо назву тегу
+        const nameStart = isEndTag ? i + 2 : i + 1;
+        let nameEnd = nameStart;
+
+        while (nameEnd < html.length && isValidTagChar(html[nameEnd])) {
+            nameEnd++;
+        }
+        const tagName = html.slice(nameStart, nameEnd).toLowerCase();
+
+        // 4. Парсимо атрибути та шукаємо закриваючий '>'
+        const { attributes, end } = readAttributes(html, nameEnd);
+
+        if (end === -1) {
+            // Незакритий тег: вважаємо весь залишок текстом
             tokens.push({ type: 'text', content: html.slice(i) });
             break;
         }
 
-        // 4. Extract valid tag name character-by-character
-        const nameStart = isEndTag ? i + 2 : i + 1;
-        let nameEnd = nameStart;
-
-        while (nameEnd < closeBracket && isValidTagChar(html[nameEnd])) {
-            nameEnd++;
-        }
-
-        const tagName = html.slice(nameStart, nameEnd).toLowerCase();
-
         if (isEndTag) {
             tokens.push({ type: 'endTag', tag: tagName });
         } else {
-            tokens.push({ type: 'startTag', tag: tagName });
+            tokens.push({ type: 'startTag', tag: tagName, attributes });
         }
 
-        // Move pointer past '>'
-        i = closeBracket + 1;
+        // Зсуваємо вказівник за '>'
+        i = end + 1;
     }
 
     return tokens;
