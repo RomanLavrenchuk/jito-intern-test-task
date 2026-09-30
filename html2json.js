@@ -5,6 +5,22 @@ function convertHtml2JsonAndSet() {
     jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
 }
 
+const VOID_ELEMENTS = new Set([
+    'area',
+    'base',
+    'br',
+    'col',
+    'embed',
+    'hr',
+    'img',
+    'input',
+    'link',
+    'meta',
+    'source',
+    'track',
+    'wbr',
+]);
+
 // Helper: Only letters are valid for the FIRST character of a tag name
 function isLetter(ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
@@ -43,9 +59,12 @@ function buildTree(tokens) {
                 children: [],
             };
             currentParent.children.push(newNode);
-            stack.push(newNode);
+            // Не кладемо у стек, якщо елемент void АБО самозакриваючий (selfClosing)
+            const isVoid = VOID_ELEMENTS.has(token.tag);
+            if (!isVoid && !token.selfClosing) {
+                stack.push(newNode);
+            }
         } else if (token.type === 'endTag') {
-            // Порівнюємо безпосередньо з currentParent.tag для кращої читабельності
             if (stack.length > 1 && currentParent.tag === token.tag) {
                 stack.pop();
             }
@@ -71,6 +90,7 @@ function setAttribute(attributes, name, value) {
 function readAttributes(html, start) {
     const attributes = Object.create(null);
     let i = start;
+    let selfClosing = false;
 
     while (i < html.length) {
         const ch = html[i];
@@ -83,11 +103,15 @@ function readAttributes(html, start) {
 
         // 2. Кінець тегу '>'
         if (ch === '>') {
-            return { attributes, end: i };
+            return { attributes, end: i, selfClosing: false };
         }
 
-        // 3. Самозакриваючий символ '/' (обробимо детально у Step 5)
+        // Обробка '/'
         if (ch === '/') {
+            if (i + 1 < html.length && html[i + 1] === '>') {
+                selfClosing = true;
+                return { attributes, end: i + 1, selfClosing: true };
+            }
             i++;
             continue;
         }
@@ -145,7 +169,7 @@ function readAttributes(html, start) {
 
             if (closeQuote === -1) {
                 // Незакрита лапка: вважаємо весь тег некоректним
-                return { attributes, end: -1 };
+                return { attributes, end: -1, selfClosing: false };
             }
 
             setAttribute(attributes, attrName, html.slice(i + 1, closeQuote));
@@ -170,7 +194,7 @@ function readAttributes(html, start) {
         }
     }
 
-    return { attributes, end: -1 }; // Завершення рядка без закриваючого '>'
+    return { attributes, end: -1, selfClosing: false }; // Завершення рядка без закриваючого '>'
 }
 
 function tokenize(html) {
@@ -215,22 +239,29 @@ function tokenize(html) {
         }
         const tagName = html.slice(nameStart, nameEnd).toLowerCase();
 
-        // 4. Парсимо атрибути та шукаємо закриваючий '>'
-        const { attributes, end } = readAttributes(html, nameEnd);
+        // 4. Обробка закриваючого тегу (End Tag)
+        // [UPDATED] Викликаємо readAttributes для УСІХ тегів (у тому числі закриваючих)
+        const { attributes, end, selfClosing } = readAttributes(html, nameEnd);
 
         if (end === -1) {
-            // Незакритий тег: вважаємо весь залишок текстом
             tokens.push({ type: 'text', content: html.slice(i) });
             break;
         }
-
         if (isEndTag) {
-            tokens.push({ type: 'endTag', tag: tagName });
+            tokens.push({
+                type: 'endTag',
+                tag: tagName,
+            });
         } else {
-            tokens.push({ type: 'startTag', tag: tagName, attributes });
+            tokens.push({
+                type: 'startTag',
+                tag: tagName,
+                attributes,
+                // [UPDATED] Передаємо selfClosing у токен відкриваючого тегу
+                selfClosing,
+            });
         }
 
-        // Зсуваємо вказівник за '>'
         i = end + 1;
     }
 
