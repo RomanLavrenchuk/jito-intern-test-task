@@ -1,10 +1,3 @@
-function convertHtml2JsonAndSet() {
-    const htmlTextAreaValue = document.getElementById('html').value;
-    const jsonObj = html2json(htmlTextAreaValue);
-    const jsonArea = document.getElementById('json');
-    jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
-}
-
 const VOID_ELEMENTS = new Set([
     'area',
     'base',
@@ -16,120 +9,138 @@ const VOID_ELEMENTS = new Set([
     'input',
     'link',
     'meta',
+    'param',
     'source',
     'track',
     'wbr',
 ]);
 
-// Helper: Only letters are valid for the FIRST character of a tag name
-function isLetter(ch) {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
-}
+const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
+const RCDATA_ELEMENTS = new Set(['textarea', 'title']);
 
-// Helper: Letters, numbers, and hyphens are valid for subsequent characters
-function isValidTagChar(ch) {
-    return isLetter(ch) || (ch >= '0' && ch <= '9') || ch === '-';
-}
+const RAW_CONTENT_ELEMENTS = new Set([
+    ...RAW_TEXT_ELEMENTS,
+    ...RCDATA_ELEMENTS,
+]);
 
-function buildTree(tokens) {
-    const root = { type: 'root', children: [] };
-    const stack = [root];
-
-    for (const token of tokens) {
-        const currentParent = stack[stack.length - 1];
-
-        if (token.type === 'text') {
-            const lastChild =
-                currentParent.children[currentParent.children.length - 1];
-
-            // Якщо попередній дочірній елемент — це вже текст, об'єднуємо їх
-            if (lastChild && lastChild.type === 'text') {
-                lastChild.content += token.content;
-            } else {
-                currentParent.children.push({
-                    type: 'text',
-                    content: token.content,
-                });
-            }
-        } else if (token.type === 'doctype') {
-            // Додаємо doctype до дітей поточного батька
-            currentParent.children.push({
-                type: 'doctype',
-                content: token.content,
-            });
-        } else if (token.type === 'comment') {
-            //Додаємо вузол коментаря до дітей поточного батька
-            currentParent.children.push({
-                type: 'comment',
-                content: token.content,
-            });
-        } else if (token.type === 'startTag') {
-            const newNode = {
-                type: 'element',
-                tag: token.tag,
-                attributes: token.attributes, // Використовуємо зчитані атрибути
-                children: [],
-            };
-            currentParent.children.push(newNode);
-            // Не кладемо у стек, якщо елемент void АБО самозакриваючий (selfClosing)
-            const isVoid = VOID_ELEMENTS.has(token.tag);
-            if (!isVoid && !token.selfClosing) {
-                stack.push(newNode);
-            }
-        } else if (token.type === 'endTag') {
-            if (stack.length > 1 && currentParent.tag === token.tag) {
-                stack.pop();
-            }
-        }
-    }
-
-    return root;
-}
-
-// Перевірка на пробілові символи (Space, Tab, Newline, Carriage Return, Form Feed)
-function isWhitespace(ch) {
+function isWhitespace(char) {
     return (
-        ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f'
+        char === ' ' ||
+        char === '\t' ||
+        char === '\n' ||
+        char === '\f' ||
+        char === '\r'
     );
 }
 
-// Помічник для безпечного встановлення атрибутів (зберігається тільки перше значення)
-function setAttribute(attributes, name, value) {
-    if (!(name in attributes)) {
-        attributes[name] = value;
-    }
+function isLetter(char) {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
 }
-function readAttributes(html, start) {
-    const attributes = Object.create(null);
-    let i = start;
-    let selfClosing = false;
 
-    while (i < html.length) {
-        const ch = html[i];
+function isValidTagChar(char) {
+    if (!char) return false;
+    return !isWhitespace(char) && char !== '>' && char !== '/';
+}
 
-        // 1. Пропускаємо пробіли
-        if (isWhitespace(ch)) {
-            i++;
-            continue;
+/**
+ * Safely sets attribute on dictionary without prototype pollution
+ * and respects first-attribute-wins rule.
+ */
+function setAttribute(attributes, name, value) {
+    if (Object.prototype.hasOwnProperty.call(attributes, name)) {
+        return;
+    }
+    attributes[name] = value;
+}
+
+/**
+ * Helper to read text until a specific marker tag/substring is found.
+ */
+function readUntil(html, start, marker) {
+    const index = html.indexOf(marker, start);
+    if (index === -1) {
+        return {
+            content: html.slice(start),
+            nextIndex: html.length,
+            found: false,
+        };
+    }
+    return {
+        content: html.slice(start, index),
+        nextIndex: index + marker.length,
+        found: true,
+    };
+}
+
+/**
+ * Helper to find the index of the matching closing tag for RAW TEXT / RCDATA elements.
+ */
+function findClosingTagIndex(html, lowerTagName, startIndex) {
+    const tagLen = lowerTagName.length;
+    let searchPos = startIndex;
+
+    while (searchPos < html.length) {
+        const closeStart = html.indexOf('</', searchPos);
+        if (closeStart === -1) {
+            return -1;
         }
 
-        // 2. Кінець тегу '>'
-        if (ch === '>') {
+        const candidateName = html
+            .slice(closeStart + 2, closeStart + 2 + tagLen)
+            .toLowerCase();
+
+        if (candidateName === lowerTagName) {
+            const nextChar = html[closeStart + 2 + tagLen];
+
+            if (
+                nextChar === undefined ||
+                nextChar === '>' ||
+                nextChar === '/' ||
+                isWhitespace(nextChar)
+            ) {
+                return closeStart;
+            }
+        }
+
+        searchPos = closeStart + 2;
+    }
+
+    return -1;
+}
+
+/**
+ * Parses tag attributes into a key-value dictionary and identifies self-closing state.
+ */
+function readAttributes(html, startIndex) {
+    const attributes = Object.create(null);
+    let i = startIndex;
+
+    while (i < html.length) {
+        while (i < html.length && isWhitespace(html[i])) {
+            i++;
+        }
+
+        if (i >= html.length) {
+            return { attributes, end: -1, selfClosing: false };
+        }
+
+        if (html[i] === '>') {
             return { attributes, end: i, selfClosing: false };
         }
 
-        // Обробка '/'
-        if (ch === '/') {
-            if (i + 1 < html.length && html[i + 1] === '>') {
-                selfClosing = true;
-                return { attributes, end: i + 1, selfClosing: true };
-            }
+        if (html[i] === '/' && html[i + 1] === '>') {
+            return { attributes, end: i + 1, selfClosing: true };
+        }
+
+        // Protection against lone '/' not followed by '>'
+        if (html[i] === '/') {
             i++;
             continue;
         }
 
-        // 4. Зчитуємо назву атрибута до пробілу, '=', '>' або '/'
-        const nameStart = i;
+        const attrNameStart = i;
         while (
             i < html.length &&
             !isWhitespace(html[i]) &&
@@ -140,75 +151,67 @@ function readAttributes(html, start) {
             i++;
         }
 
-        // Якщо це був некоректний символ (наприклад '=', який йде одразу без назви)
-        if (i === nameStart) {
+        // Infinite loop protection if attribute name is empty
+        if (i === attrNameStart) {
             i++;
             continue;
         }
 
-        const attrName = html.slice(nameStart, i).toLowerCase();
+        const attrName = html.slice(attrNameStart, i).toLowerCase();
 
-        // 5. Пропускаємо пробіли перед '='
         while (i < html.length && isWhitespace(html[i])) {
             i++;
         }
 
-        // Якщо після назви немає знака '=', це булевий атрибут (наприклад, disabled)
-        if (i >= html.length || html[i] !== '=') {
-            setAttribute(attributes, attrName, '');
-            continue;
-        }
-
-        // Пропускаємо знак '='
-        i++;
-
-        // Пропускаємо пробіли після '='
-        while (i < html.length && isWhitespace(html[i])) {
+        if (html[i] === '=') {
             i++;
-        }
 
-        if (i >= html.length) {
-            setAttribute(attributes, attrName, '');
-            break;
-        }
-
-        const valueStartChar = html[i];
-
-        // Case A: Значення у подвійних або поодиноких лапках
-        if (valueStartChar === '"' || valueStartChar === "'") {
-            const quote = valueStartChar;
-            const closeQuote = html.indexOf(quote, i + 1);
-
-            if (closeQuote === -1) {
-                // Незакрита лапка: вважаємо весь тег некоректним
-                return { attributes, end: -1, selfClosing: false };
-            }
-
-            setAttribute(attributes, attrName, html.slice(i + 1, closeQuote));
-            i = closeQuote + 1;
-        }
-        // Case B: Порожнє значення перед закриваючим тегом (наприклад, <div class=>)
-        else if (valueStartChar === '>') {
-            setAttribute(attributes, attrName, '');
-            // Не робимо i++, щоб наступна ітерація побачила '>' і завершила цикл
-        }
-        // Case C: Значення без лапок (unquoted value)
-        else {
-            const valStart = i;
-            while (
-                i < html.length &&
-                !isWhitespace(html[i]) &&
-                html[i] !== '>'
-            ) {
+            while (i < html.length && isWhitespace(html[i])) {
                 i++;
             }
-            setAttribute(attributes, attrName, html.slice(valStart, i));
+
+            let attrValue = '';
+
+            if (html[i] === '"' || html[i] === "'") {
+                const quote = html[i];
+                i++;
+                const valStart = i;
+
+                while (i < html.length && html[i] !== quote) {
+                    i++;
+                }
+
+                attrValue = html.slice(valStart, i);
+
+                if (i < html.length) {
+                    i++;
+                }
+            } else {
+                const valStart = i;
+
+                while (
+                    i < html.length &&
+                    !isWhitespace(html[i]) &&
+                    html[i] !== '>'
+                ) {
+                    i++;
+                }
+
+                attrValue = html.slice(valStart, i);
+            }
+
+            setAttribute(attributes, attrName, attrValue);
+        } else {
+            setAttribute(attributes, attrName, '');
         }
     }
 
-    return { attributes, end: -1, selfClosing: false }; // Завершення рядка без закриваючого '>'
+    return { attributes, end: -1, selfClosing: false };
 }
 
+/**
+ * Tokenizes raw HTML string into structured tokens.
+ */
 function tokenize(html) {
     const tokens = [];
     let i = 0;
@@ -227,198 +230,143 @@ function tokenize(html) {
             i = nextTag;
         }
 
-        // 2.Перевірка на коментар <!--
+        // 2. Comments <!-- ... -->
         if (html.startsWith('<!--', i)) {
-            const closeComment = html.indexOf('-->', i + 4);
-
-            if (closeComment !== -1) {
-                // Знайшли закриваючий '-->'
-                tokens.push({
-                    type: 'comment',
-                    content: html.slice(i + 4, closeComment),
-                });
-                i = closeComment + 3;
-            } else {
-                // Незакритий коментар: зчитуємо все до кінця документа
-                tokens.push({
-                    type: 'comment',
-                    content: html.slice(i + 4),
-                });
-                break;
-            }
+            const { content, nextIndex, found } = readUntil(html, i + 4, '-->');
+            tokens.push({ type: 'comment', content });
+            if (!found) break;
+            i = nextIndex;
             continue;
         }
-        // 3. [НОВЕ] DOCTYPE: <!doctype ...> (case-insensitive)
+
+        // 3. DOCTYPE declaration <!doctype ...>
         if (
             html.startsWith('<!', i) &&
             html.slice(i + 2, i + 9).toLowerCase() === 'doctype'
         ) {
-            const closeGt = html.indexOf('>', i + 9);
-
-            if (closeGt !== -1) {
-                tokens.push({
-                    type: 'doctype',
-                    content: html.slice(i + 9, closeGt).trim(),
-                });
-                i = closeGt + 1;
-            } else {
-                tokens.push({
-                    type: 'doctype',
-                    content: html.slice(i + 9).trim(),
-                });
-                break;
-            }
+            const { content, nextIndex, found } = readUntil(html, i + 9, '>');
+            tokens.push({ type: 'doctype', content: content.trim() });
+            if (!found) break;
+            i = nextIndex;
             continue;
         }
 
-        // 4. [НОВЕ] Інші <!...> та <?...>: Bogus Comments (наприклад <![CDATA[x]]> або <?xml...>)
+        // 4. Bogus comments <!...> and <?...>
         if (html.startsWith('<!', i) || html.startsWith('<?', i)) {
-            const closeGt = html.indexOf('>', i + 2);
-
-            if (closeGt !== -1) {
-                tokens.push({
-                    type: 'comment',
-                    content: html.slice(i + 2, closeGt),
-                });
-                i = closeGt + 1;
-            } else {
-                tokens.push({
-                    type: 'comment',
-                    content: html.slice(i + 2),
-                });
-                break;
-            }
+            const { content, nextIndex, found } = readUntil(html, i + 2, '>');
+            tokens.push({ type: 'comment', content });
+            if (!found) break;
+            i = nextIndex;
             continue;
         }
-        // 5. Перевіряємо, чи це реальний відкриваючий/закриваючий тег
+
+        // 5. Validate if it's a real start or end tag
         const charAfterLt = html[i + 1];
         const isEndTag = charAfterLt === '/' && isLetter(html[i + 2]);
-        // Start tag must start with < followed by a letter (e.g., <a)
         const isStartTag = isLetter(charAfterLt);
 
         if (!isStartTag && !isEndTag) {
-            // Not a real tag (e.g., "x <5 y" or "a <- b"), treat '<' as plain text
             tokens.push({ type: 'text', content: '<' });
             i++;
             continue;
         }
 
-        // 3. Зчитуємо назву тегу
+        // 6. Read tag name
         const nameStart = isEndTag ? i + 2 : i + 1;
         let nameEnd = nameStart;
 
         while (nameEnd < html.length && isValidTagChar(html[nameEnd])) {
             nameEnd++;
         }
+
         const tagName = html.slice(nameStart, nameEnd).toLowerCase();
 
-        // Викликаємо readAttributes для УСІХ тегів (у тому числі закриваючих)
+        // 7. Read attributes and ending bracket '>'
         const { attributes, end, selfClosing } = readAttributes(html, nameEnd);
 
         if (end === -1) {
             tokens.push({ type: 'text', content: html.slice(i) });
             break;
         }
+
         if (isEndTag) {
-            tokens.push({
-                type: 'endTag',
-                tag: tagName,
-            });
+            tokens.push({ type: 'endTag', tag: tagName });
         } else {
             tokens.push({
                 type: 'startTag',
                 tag: tagName,
                 attributes,
-                //Передаємо selfClosing у токен відкриваючого тегу
                 selfClosing,
             });
         }
 
         i = end + 1;
+
+        // 8. Handle RAW TEXT and RCDATA elements (script, style, textarea, title)
+        if (!isEndTag && RAW_CONTENT_ELEMENTS.has(tagName) && !selfClosing) {
+            const closeTagIndex = findClosingTagIndex(html, tagName, i);
+
+            if (closeTagIndex !== -1) {
+                const rawTextContent = html.slice(i, closeTagIndex);
+                if (rawTextContent.length > 0) {
+                    tokens.push({ type: 'text', content: rawTextContent });
+                }
+                i = closeTagIndex;
+            } else {
+                const remainingText = html.slice(i);
+                if (remainingText.length > 0) {
+                    tokens.push({ type: 'text', content: remainingText });
+                }
+                break;
+            }
+        }
     }
 
     return tokens;
 }
 
-/* 
-  Update this function to convert html into json object.
-  You can rewrite it completely, just be sure it accepts htmlText as string and outputs json object.
-*/
-function html2json(htmlText) {
-    const tokens = tokenize(htmlText);
-    return buildTree(tokens);
-}
+/**
+ * Builds an AST / JSON tree from token list.
+ */
+function buildTree(tokens) {
+    const root = { type: 'root', children: [] };
+    const stack = [root];
 
-function showExample1() {
-    const htmlExample = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport">
-    <title>Sample HTML</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-    <header>
-        <h1>Welcome to My Website</h1>
-    </header>
-    <nav>
-        <ul>
-            <li><a href="#home">Home</a></li>
-            <li><a href="#about">About</a></li>
-            <li><a href="#contact">Contact</a></li>
-        </ul>
-    </nav>
-    <main>
-        <section id="home">
-            <h2>Home Section</h2>
-            <p>This is the home section of the webpage.</p>
-        </section>
-        <section id="about">
-            <h2>About Section</h2>
-            <p>This is the about section of the webpage.</p>
-        </section>
-    </main>
-    <footer>
-        <p>&copy; 2024 My Website</p>
-    </footer>
-    <script src="script.js"></script>
-</body>
-</html>
-`;
-    const jsonContent = {
-        'Comment 1':
-            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-        'Comment 2':
-            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-    };
+    for (const token of tokens) {
+        const parent = stack[stack.length - 1];
 
-    document.getElementById('html').value = htmlExample;
-    document.getElementById('json').textContent = JSON.stringify(
-        jsonContent,
-        null,
-        2,
-    );
-}
+        if (token.type === 'text') {
+            const lastChild = parent.children[parent.children.length - 1];
+            if (lastChild && lastChild.type === 'text') {
+                lastChild.content += token.content;
+            } else {
+                parent.children.push({ type: 'text', content: token.content });
+            }
+        } else if (token.type === 'comment' || token.type === 'doctype') {
+            parent.children.push({ type: token.type, content: token.content });
+        } else if (token.type === 'startTag') {
+            const element = {
+                type: 'element',
+                tag: token.tag,
+                attributes: token.attributes,
+                children: [],
+            };
 
-function showExample2() {
-    const htmlExample = `<div>
-<p>Hello world!</p>
-  <button>Click me!</button>
-  <textarea>Some very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long string.</textarea>
-</div>
-`;
-    const jsonContent = {
-        'Comment 1':
-            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-        'Comment 2':
-            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-    };
+            parent.children.push(element);
 
-    document.getElementById('html').value = htmlExample;
-    document.getElementById('json').textContent = JSON.stringify(
-        jsonContent,
-        null,
-        2,
-    );
+            const isVoid = VOID_ELEMENTS.has(token.tag);
+            if (!isVoid && !token.selfClosing) {
+                stack.push(element);
+            }
+        } else if (token.type === 'endTag') {
+            for (let i = stack.length - 1; i > 0; i--) {
+                if (stack[i].tag === token.tag) {
+                    stack.length = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    return root;
 }
