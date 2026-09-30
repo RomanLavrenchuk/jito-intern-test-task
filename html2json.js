@@ -51,6 +51,18 @@ function buildTree(tokens) {
                     content: token.content,
                 });
             }
+        } else if (token.type === 'doctype') {
+            // Додаємо doctype до дітей поточного батька
+            currentParent.children.push({
+                type: 'doctype',
+                content: token.content,
+            });
+        } else if (token.type === 'comment') {
+            //Додаємо вузол коментаря до дітей поточного батька
+            currentParent.children.push({
+                type: 'comment',
+                content: token.content,
+            });
         } else if (token.type === 'startTag') {
             const newNode = {
                 type: 'element',
@@ -215,10 +227,71 @@ function tokenize(html) {
             i = nextTag;
         }
 
-        // 2. Look ahead past '<' to verify if it's a valid tag start
-        const charAfterLt = html[i + 1];
+        // 2.Перевірка на коментар <!--
+        if (html.startsWith('<!--', i)) {
+            const closeComment = html.indexOf('-->', i + 4);
 
-        // End tag must start with </ followed by a letter (e.g., </a)
+            if (closeComment !== -1) {
+                // Знайшли закриваючий '-->'
+                tokens.push({
+                    type: 'comment',
+                    content: html.slice(i + 4, closeComment),
+                });
+                i = closeComment + 3;
+            } else {
+                // Незакритий коментар: зчитуємо все до кінця документа
+                tokens.push({
+                    type: 'comment',
+                    content: html.slice(i + 4),
+                });
+                break;
+            }
+            continue;
+        }
+        // 3. [НОВЕ] DOCTYPE: <!doctype ...> (case-insensitive)
+        if (
+            html.startsWith('<!', i) &&
+            html.slice(i + 2, i + 9).toLowerCase() === 'doctype'
+        ) {
+            const closeGt = html.indexOf('>', i + 9);
+
+            if (closeGt !== -1) {
+                tokens.push({
+                    type: 'doctype',
+                    content: html.slice(i + 9, closeGt).trim(),
+                });
+                i = closeGt + 1;
+            } else {
+                tokens.push({
+                    type: 'doctype',
+                    content: html.slice(i + 9).trim(),
+                });
+                break;
+            }
+            continue;
+        }
+
+        // 4. [НОВЕ] Інші <!...> та <?...>: Bogus Comments (наприклад <![CDATA[x]]> або <?xml...>)
+        if (html.startsWith('<!', i) || html.startsWith('<?', i)) {
+            const closeGt = html.indexOf('>', i + 2);
+
+            if (closeGt !== -1) {
+                tokens.push({
+                    type: 'comment',
+                    content: html.slice(i + 2, closeGt),
+                });
+                i = closeGt + 1;
+            } else {
+                tokens.push({
+                    type: 'comment',
+                    content: html.slice(i + 2),
+                });
+                break;
+            }
+            continue;
+        }
+        // 5. Перевіряємо, чи це реальний відкриваючий/закриваючий тег
+        const charAfterLt = html[i + 1];
         const isEndTag = charAfterLt === '/' && isLetter(html[i + 2]);
         // Start tag must start with < followed by a letter (e.g., <a)
         const isStartTag = isLetter(charAfterLt);
@@ -239,8 +312,7 @@ function tokenize(html) {
         }
         const tagName = html.slice(nameStart, nameEnd).toLowerCase();
 
-        // 4. Обробка закриваючого тегу (End Tag)
-        // [UPDATED] Викликаємо readAttributes для УСІХ тегів (у тому числі закриваючих)
+        // Викликаємо readAttributes для УСІХ тегів (у тому числі закриваючих)
         const { attributes, end, selfClosing } = readAttributes(html, nameEnd);
 
         if (end === -1) {
@@ -257,7 +329,7 @@ function tokenize(html) {
                 type: 'startTag',
                 tag: tagName,
                 attributes,
-                // [UPDATED] Передаємо selfClosing у токен відкриваючого тегу
+                //Передаємо selfClosing у токен відкриваючого тегу
                 selfClosing,
             });
         }
