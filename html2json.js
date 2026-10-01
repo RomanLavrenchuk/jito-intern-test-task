@@ -1,3 +1,10 @@
+function convertHtml2JsonAndSet() {
+    const htmlTextAreaValue = document.getElementById('html').value;
+    const jsonObj = html2json(htmlTextAreaValue);
+    const jsonArea = document.getElementById('json');
+    jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
+}
+
 const VOID_ELEMENTS = new Set([
     'area',
     'base',
@@ -15,6 +22,25 @@ const VOID_ELEMENTS = new Set([
     'wbr',
 ]);
 
+const NAMED_ENTITIES = Object.assign(Object.create(null), {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    nbsp: '\u00A0',
+    copy: '©',
+    reg: '®',
+    trade: '™',
+    hellip: '…',
+    mdash: '—',
+    ndash: '–',
+    euro: '€',
+    pound: '£',
+    yen: '¥',
+    cent: '¢',
+});
+
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 const RCDATA_ELEMENTS = new Set(['textarea', 'title']);
 
@@ -22,6 +48,55 @@ const RAW_CONTENT_ELEMENTS = new Set([
     ...RAW_TEXT_ELEMENTS,
     ...RCDATA_ELEMENTS,
 ]);
+
+function safeFromCodePoint(codePoint, fallback) {
+    if (isNaN(codePoint)) return fallback;
+
+    // Перевірка меж Unicode та сурогатних пар UTF-16 (0xD800–0xDFFF)
+    if (
+        codePoint <= 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ) {
+        return '\uFFFD'; // Символ заміни
+    }
+
+    try {
+        return String.fromCodePoint(codePoint);
+    } catch {
+        return '\uFFFD';
+    }
+}
+
+function decodeEntities(str) {
+    if (!str || typeof str !== 'string' || !str.includes('&')) {
+        return str;
+    }
+
+    return str.replace(
+        /&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g,
+        (match, body) => {
+            // 1. Шістнадцяткові: &#xA9; або &#XA9;
+            if (body.startsWith('#x') || body.startsWith('#X')) {
+                const codePoint = parseInt(body.slice(2), 16);
+                return safeFromCodePoint(codePoint, match);
+            }
+
+            // 2. Десяткові: &#169;
+            if (body.startsWith('#')) {
+                const codePoint = parseInt(body.slice(1), 10);
+                return safeFromCodePoint(codePoint, match);
+            }
+
+            // 3. Іменовані: &copy;
+            if (Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body)) {
+                return NAMED_ENTITIES[body];
+            }
+
+            return match;
+        },
+    );
+}
 
 function isWhitespace(char) {
     return (
@@ -200,7 +275,7 @@ function readAttributes(html, startIndex) {
                 attrValue = html.slice(valStart, i);
             }
 
-            setAttribute(attributes, attrName, attrValue);
+            setAttribute(attributes, attrName, decodeEntities(attrValue));
         } else {
             setAttribute(attributes, attrName, '');
         }
@@ -220,13 +295,19 @@ function tokenize(html) {
         const nextTag = html.indexOf('<', i);
 
         if (nextTag === -1) {
-            tokens.push({ type: 'text', content: html.slice(i) });
+            tokens.push({
+                type: 'text',
+                content: decodeEntities(html.slice(i)),
+            });
             break;
         }
 
         // 1. Collect text before '<'
         if (nextTag > i) {
-            tokens.push({ type: 'text', content: html.slice(i, nextTag) });
+            tokens.push({
+                type: 'text',
+                content: decodeEntities(html.slice(i, nextTag)),
+            });
             i = nextTag;
         }
 
@@ -307,13 +388,24 @@ function tokenize(html) {
             const closeTagIndex = findClosingTagIndex(html, tagName, i);
 
             if (closeTagIndex !== -1) {
-                const rawTextContent = html.slice(i, closeTagIndex);
+                let rawTextContent = html.slice(i, closeTagIndex);
+
+                // RCDATA (textarea, title) декодує сутності, a script/style ні
+                if (RCDATA_ELEMENTS.has(tagName)) {
+                    rawTextContent = decodeEntities(rawTextContent);
+                }
+
                 if (rawTextContent.length > 0) {
                     tokens.push({ type: 'text', content: rawTextContent });
                 }
                 i = closeTagIndex;
             } else {
-                const remainingText = html.slice(i);
+                let remainingText = html.slice(i);
+
+                // для випадку, коли закриваючий тег відсутній до кінця файлу
+                if (RCDATA_ELEMENTS.has(tagName)) {
+                    remainingText = decodeEntities(remainingText);
+                }
                 if (remainingText.length > 0) {
                     tokens.push({ type: 'text', content: remainingText });
                 }
@@ -369,4 +461,81 @@ function buildTree(tokens) {
     }
 
     return root;
+}
+function html2json(htmlText) {
+    return buildTree(tokenize(htmlText));
+}
+
+function showExample1() {
+    const htmlExample = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport">
+    <title>Sample HTML</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Welcome to My Website</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="#home">Home</a></li>
+            <li><a href="#about">About</a></li>
+            <li><a href="#contact">Contact</a></li>
+        </ul>
+    </nav>
+    <main>
+        <section id="home">
+            <h2>Home Section</h2>
+            <p>This is the home section of the webpage.</p>
+        </section>
+        <section id="about">
+            <h2>About Section</h2>
+            <p>This is the about section of the webpage.</p>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2024 My Website</p>
+    </footer>
+    <script src="script.js"></script>
+</body>
+</html>
+`;
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
+
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
+}
+
+function showExample2() {
+    const htmlExample = `<div>
+<p>Hello world!</p>
+  <button>Click me!</button>
+  <textarea>Some very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long string.</textarea>
+</div>
+`;
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
+
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
 }
