@@ -41,6 +41,54 @@ const NAMED_ENTITIES = Object.assign(Object.create(null), {
     cent: '¢',
 });
 
+const BLOCK_ELEMENTS = [
+    'p',
+    'div',
+    'ul',
+    'ol',
+    'dl',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'table',
+    'section',
+    'article',
+    'header',
+    'footer',
+    'nav',
+    'main',
+    'aside',
+    'form',
+    'pre',
+    'blockquote',
+    'hr',
+    'figure',
+];
+
+const AUTO_CLOSE_RULES = [
+    // Коли відкривається key -> закриваються елементи з set
+    ['li', new Set(['li'])],
+    ['dt', new Set(['dt', 'dd'])],
+    ['dd', new Set(['dt', 'dd'])],
+    ['option', new Set(['option'])],
+    ['tr', new Set(['tr', 'td', 'th'])],
+    ['td', new Set(['td', 'th'])],
+    ['th', new Set(['td', 'th'])],
+];
+
+const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
+
+// Для всіх блокових елементів додаємо закриття для <p>
+for (const tag of BLOCK_ELEMENTS) {
+    if (!AUTO_CLOSE.has(tag)) {
+        AUTO_CLOSE.set(tag, new Set());
+    }
+    AUTO_CLOSE.get(tag).add('p');
+}
+
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 const RCDATA_ELEMENTS = new Set(['textarea', 'title']);
 
@@ -425,7 +473,7 @@ function buildTree(tokens) {
     const stack = [root];
 
     for (const token of tokens) {
-        const parent = stack[stack.length - 1];
+        let parent = stack[stack.length - 1];
 
         if (token.type === 'text') {
             const lastChild = parent.children[parent.children.length - 1];
@@ -437,6 +485,18 @@ function buildTree(tokens) {
         } else if (token.type === 'comment' || token.type === 'doctype') {
             parent.children.push({ type: token.type, content: token.content });
         } else if (token.type === 'startTag') {
+            const tagsToClose = AUTO_CLOSE.get(token.tag);
+            if (tagsToClose) {
+                while (
+                    stack.length > 1 &&
+                    tagsToClose.has(stack[stack.length - 1].tag)
+                ) {
+                    stack.pop();
+                }
+            }
+
+            // Перераховуємо parent, бо стек міг змінитися після pop()
+            parent = stack[stack.length - 1];
             const element = {
                 type: 'element',
                 tag: token.tag,
