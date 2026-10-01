@@ -81,6 +81,8 @@ const AUTO_CLOSE_RULES = [
 
 const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
 
+const MAX_DEPTH = 512;
+
 // Для всіх блокових елементів додаємо закриття для <p>
 for (const tag of BLOCK_ELEMENTS) {
     if (!AUTO_CLOSE.has(tag)) {
@@ -508,7 +510,9 @@ function buildTree(tokens) {
 
             const isVoid = VOID_ELEMENTS.has(token.tag);
             if (!isVoid && !token.selfClosing) {
-                stack.push(element);
+                if (stack.length < MAX_DEPTH) {
+                    stack.push(element);
+                }
             }
         } else if (token.type === 'endTag') {
             for (let i = stack.length - 1; i > 0; i--) {
@@ -523,11 +527,29 @@ function buildTree(tokens) {
     return root;
 }
 function html2json(htmlText) {
-    return buildTree(tokenize(htmlText));
-}
+    // 10.1 Check input type
+    if (typeof htmlText !== 'string') {
+        return { type: 'root', children: [] };
+    }
 
-function showExample1() {
-    const htmlExample = `<!DOCTYPE html>
+    // 10.3 Try/catch safety net
+    try {
+        const tokens = tokenize(html);
+        return buildTree(tokens);
+    } catch (err) {
+        return {
+            type: 'root',
+            children: [],
+            error: err.message || 'Parsing error',
+        };
+    }
+    // Експорт для Node.js або ES-модулів:
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = { html2json };
+    }
+
+    function showExample1() {
+        const htmlExample = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -563,39 +585,40 @@ function showExample1() {
 </body>
 </html>
 `;
-    const jsonContent = {
-        'Comment 1':
-            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-        'Comment 2':
-            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-    };
+        const jsonContent = {
+            'Comment 1':
+                'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+            'Comment 2':
+                'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+        };
 
-    document.getElementById('html').value = htmlExample;
-    document.getElementById('json').textContent = JSON.stringify(
-        jsonContent,
-        null,
-        2,
-    );
-}
+        document.getElementById('html').value = htmlExample;
+        document.getElementById('json').textContent = JSON.stringify(
+            jsonContent,
+            null,
+            2,
+        );
+    }
 
-function showExample2() {
-    const htmlExample = `<div>
+    function showExample2() {
+        const htmlExample = `<div>
 <p>Hello world!</p>
   <button>Click me!</button>
   <textarea>Some very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long string.</textarea>
 </div>
 `;
-    const jsonContent = {
-        'Comment 1':
-            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-        'Comment 2':
-            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-    };
+        const jsonContent = {
+            'Comment 1':
+                'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+            'Comment 2':
+                'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+        };
 
-    document.getElementById('html').value = htmlExample;
-    document.getElementById('json').textContent = JSON.stringify(
-        jsonContent,
-        null,
-        2,
-    );
+        document.getElementById('html').value = htmlExample;
+        document.getElementById('json').textContent = JSON.stringify(
+            jsonContent,
+            null,
+            2,
+        );
+    }
 }
