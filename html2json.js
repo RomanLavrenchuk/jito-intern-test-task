@@ -534,7 +534,7 @@ function html2json(htmlText) {
 
     // 10.3 Try/catch safety net
     try {
-        const tokens = tokenize(html);
+        const tokens = tokenize(htmlText);
         return buildTree(tokens);
     } catch (err) {
         return {
@@ -543,13 +543,9 @@ function html2json(htmlText) {
             error: err.message || 'Parsing error',
         };
     }
-    // Експорт для Node.js або ES-модулів:
-    if (typeof module !== 'undefined' && module.exports) {
-        module.exports = { html2json };
-    }
-
-    function showExample1() {
-        const htmlExample = `<!DOCTYPE html>
+}
+function showExample1() {
+    const htmlExample = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -585,40 +581,44 @@ function html2json(htmlText) {
 </body>
 </html>
 `;
-        const jsonContent = {
-            'Comment 1':
-                'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-            'Comment 2':
-                'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-        };
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
 
-        document.getElementById('html').value = htmlExample;
-        document.getElementById('json').textContent = JSON.stringify(
-            jsonContent,
-            null,
-            2,
-        );
-    }
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
+}
 
-    function showExample2() {
-        const htmlExample = `<div>
+function showExample2() {
+    const htmlExample = `<div>
 <p>Hello world!</p>
   <button>Click me!</button>
   <textarea>Some very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long string.</textarea>
 </div>
 `;
-        const jsonContent = {
-            'Comment 1':
-                'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
-            'Comment 2':
-                'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
-        };
+    const jsonContent = {
+        'Comment 1':
+            'You have to think about how to take into account various html inputs so your json structure will cover them all and handle different cases.',
+        'Comment 2':
+            'When you make any choice in terms of selecting specific json structure for conversion - be ready to provide reasoning behind such choice.',
+    };
 
-        document.getElementById('html').value = htmlExample;
-        document.getElementById('json').textContent = JSON.stringify(
-            jsonContent,
-            null,
-            2,
-        );
-    }
+    document.getElementById('html').value = htmlExample;
+    document.getElementById('json').textContent = JSON.stringify(
+        jsonContent,
+        null,
+        2,
+    );
+}
+
+// Експорт для Node.js або ES-модулів:
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { html2json };
 }

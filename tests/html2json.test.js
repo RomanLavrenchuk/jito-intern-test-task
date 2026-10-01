@@ -1,5 +1,5 @@
 // html2json.test.js
-const { html2json } = require('./html2json.js'); // або імпорт, якщо використовуєте ES modules
+const { html2json } = require('../html2json.js'); // або імпорт, якщо використовуєте ES modules
 
 console.clear();
 console.log('=== 1. ПЕРЕВІРКА БАЗОВОЇ КОРЕКТНОСТІ (Assertions) ===');
@@ -118,3 +118,31 @@ function runPropertyBasedFuzzer(iterations = 10000) {
 }
 
 runPropertyBasedFuzzer(10000);
+
+console.log('\n=== Invalid inputs ===');
+const invalidInputs = [null, undefined, 123, {}, [], ''];
+
+for (const input of invalidInputs) {
+    const res = html2json(input);
+    const ok =
+        res.type === 'root' &&
+        Array.isArray(res.children) &&
+        res.children.length === 0 &&
+        !res.error;
+    console.log(ok ? '✅' : '❌', JSON.stringify(input) ?? String(input));
+}
+
+console.log('\n=== Weird inputs ===');
+const weirdInputs = {
+    '100,000 "<"': '<'.repeat(100000),
+    '100,000 "&"': '&'.repeat(100000),
+    '10,000 "<!--"': '<!--'.repeat(10000),
+    '10,000 unclosed attributes': '<a href="'.repeat(10000),
+};
+
+for (const [name, input] of Object.entries(weirdInputs)) {
+    console.time(name);
+    const res = html2json(input);
+    console.timeEnd(name);
+    console.log(res.error ? `❌ ${res.error}` : '✅ no error');
+}
