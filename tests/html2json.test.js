@@ -1,20 +1,20 @@
 // html2json.test.js
-const { html2json } = require('../html2json.js'); // або імпорт, якщо використовуєте ES modules
+const { html2json } = require('../html2json.js');
 
 console.clear();
-console.log('=== 1. ПЕРЕВІРКА БАЗОВОЇ КОРЕКТНОСТІ (Assertions) ===');
+console.log('=== 1. Basic correctness (assertions) ===');
 
 const r1 = html2json('<p>x</p>');
 console.assert(
     r1.children && r1.children.length === 1 && r1.children[0].tag === 'p',
-    '❌ Помилка: Парсер повернув неправильний результат для <p>x</p>',
+    '❌ Error: parser returned an incorrect result for <p>x</p>',
     r1,
 );
 
 const r2 = html2json('<div class="test"><span id="1">Hello</span></div>');
 console.assert(
     r2.children[0]?.children[0]?.children[0]?.content === 'Hello',
-    '❌ Помилка: Некоректний парсинг вкладеного тексту',
+    '❌ Error: nested text was parsed incorrectly',
     r2,
 );
 
@@ -24,10 +24,10 @@ if (
     r1.children[0].tag === 'p' &&
     r2.children[0]?.children[0]?.children[0]?.content === 'Hello'
 ) {
-    console.log('✅ console.assert пройшли успішно! Базовий парсинг працює.');
+    console.log('✅ All console.assert checks passed. Basic parsing works.');
 }
 
-console.log('\n=== 2. СТРЕС-ТЕСТИ ТА MAX_DEPTH (100,000 <div>) ===');
+console.log('\n=== 2. Stress tests and MAX_DEPTH (100,000 <div>) ===');
 console.time('Parsing 100,000 deep divs');
 const deepTree = html2json('<div>'.repeat(100000));
 console.timeEnd('Parsing 100,000 deep divs');
@@ -35,14 +35,14 @@ console.timeEnd('Parsing 100,000 deep divs');
 console.time('JSON.stringify of deep tree');
 try {
     const jsonString = JSON.stringify(deepTree);
-    console.log('✅ JSON.stringify пройдено успішно без помилки стеку!');
-    console.log(`Довжина результуючого JSON: ${jsonString.length} символів`);
+    console.log('✅ JSON.stringify succeeded without a stack overflow.');
+    console.log(`Resulting JSON length: ${jsonString.length} characters`);
 } catch (err) {
-    console.error('❌ Помилка при JSON.stringify:', err.message);
+    console.error('❌ JSON.stringify failed:', err.message);
 }
 console.timeEnd('JSON.stringify of deep tree');
 
-console.log('\n=== 3. ФАЗЕР (Property-Based Testing - 10,000 ітерацій) ===');
+console.log('\n=== 3. Fuzzer (property-based testing, 10,000 iterations) ===');
 
 function runPropertyBasedFuzzer(iterations = 10000) {
     const chars = '<>/="\'!-&#ab \n\txyz123';
@@ -70,7 +70,7 @@ function runPropertyBasedFuzzer(iterations = 10000) {
                 failures++;
                 failedInputs.push({
                     input: randomHtml,
-                    reason: 'Зламаний інваріант структури root',
+                    reason: 'Root structure invariant broken',
                     res,
                 });
                 continue;
@@ -102,17 +102,17 @@ function runPropertyBasedFuzzer(iterations = 10000) {
 
     console.timeEnd('Fuzzer Run Time');
     console.log(
-        `\nРезультат фазера: ${iterations - failures}/${iterations} тестів пройдено.`,
+        `\nFuzzer result: ${iterations - failures}/${iterations} tests passed.`,
     );
 
     if (failures > 0) {
         console.error(
-            `❌ Знайдено ${failures} помилок!`,
+            `❌ Found ${failures} failures:`,
             failedInputs.slice(0, 5),
         );
     } else {
         console.log(
-            '✅ Усі Property-Based тести та фазер пройшли без жодної помилки!',
+            '✅ All property-based fuzzer tests passed with no failures.',
         );
     }
 }

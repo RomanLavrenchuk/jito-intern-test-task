@@ -69,7 +69,7 @@ const BLOCK_ELEMENTS = [
 ];
 
 const AUTO_CLOSE_RULES = [
-    // Коли відкривається key -> закриваються елементи з set
+    // When the key tag opens, any open elements from the set are closed
     ['li', new Set(['li'])],
     ['dt', new Set(['dt', 'dd'])],
     ['dd', new Set(['dt', 'dd'])],
@@ -83,7 +83,7 @@ const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
 
 const MAX_DEPTH = 512;
 
-// Для всіх блокових елементів додаємо закриття для <p>
+// Every block-level element implicitly closes an open <p>
 for (const tag of BLOCK_ELEMENTS) {
     if (!AUTO_CLOSE.has(tag)) {
         AUTO_CLOSE.set(tag, new Set());
@@ -102,13 +102,13 @@ const RAW_CONTENT_ELEMENTS = new Set([
 function safeFromCodePoint(codePoint, fallback) {
     if (isNaN(codePoint)) return fallback;
 
-    // Перевірка меж Unicode та сурогатних пар UTF-16 (0xD800–0xDFFF)
+    // Reject code points outside the Unicode range and UTF-16 surrogates (0xD800–0xDFFF)
     if (
         codePoint <= 0 ||
         codePoint > 0x10ffff ||
         (codePoint >= 0xd800 && codePoint <= 0xdfff)
     ) {
-        return '\uFFFD'; // Символ заміни
+        return '\uFFFD'; // Replacement character
     }
 
     try {
@@ -126,19 +126,19 @@ function decodeEntities(str) {
     return str.replace(
         /&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g,
         (match, body) => {
-            // 1. Шістнадцяткові: &#xA9; або &#XA9;
+            // 1. Hexadecimal: &#xA9; or &#XA9;
             if (body.startsWith('#x') || body.startsWith('#X')) {
                 const codePoint = parseInt(body.slice(2), 16);
                 return safeFromCodePoint(codePoint, match);
             }
 
-            // 2. Десяткові: &#169;
+            // 2. Decimal: &#169;
             if (body.startsWith('#')) {
                 const codePoint = parseInt(body.slice(1), 10);
                 return safeFromCodePoint(codePoint, match);
             }
 
-            // 3. Іменовані: &copy;
+            // 3. Named: &copy;
             if (Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body)) {
                 return NAMED_ENTITIES[body];
             }
@@ -440,7 +440,7 @@ function tokenize(html) {
             if (closeTagIndex !== -1) {
                 let rawTextContent = html.slice(i, closeTagIndex);
 
-                // RCDATA (textarea, title) декодує сутності, a script/style ні
+                // RCDATA (textarea, title) decodes entities; RAW TEXT (script, style) does not
                 if (RCDATA_ELEMENTS.has(tagName)) {
                     rawTextContent = decodeEntities(rawTextContent);
                 }
@@ -452,7 +452,7 @@ function tokenize(html) {
             } else {
                 let remainingText = html.slice(i);
 
-                // для випадку, коли закриваючий тег відсутній до кінця файлу
+                // No closing tag before end of input: the rest of the document is raw content
                 if (RCDATA_ELEMENTS.has(tagName)) {
                     remainingText = decodeEntities(remainingText);
                 }
@@ -497,7 +497,7 @@ function buildTree(tokens) {
                 }
             }
 
-            // Перераховуємо parent, бо стек міг змінитися після pop()
+            // Re-read parent, because the stack may have changed after pop()
             parent = stack[stack.length - 1];
             const element = {
                 type: 'element',
@@ -618,7 +618,7 @@ function showExample2() {
     );
 }
 
-// Експорт для Node.js або ES-модулів:
+// Export for Node.js (CommonJS):
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { html2json };
 }
