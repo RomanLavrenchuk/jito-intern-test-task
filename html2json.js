@@ -1,9 +1,4 @@
-function convertHtml2JsonAndSet() {
-    const htmlTextAreaValue = document.getElementById('html').value;
-    const jsonObj = html2json(htmlTextAreaValue);
-    const jsonArea = document.getElementById('json');
-    jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
-}
+// ===== Constants =====
 
 const VOID_ELEMENTS = new Set([
     'area',
@@ -81,8 +76,6 @@ const AUTO_CLOSE_RULES = [
 
 const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
 
-const MAX_DEPTH = 512;
-
 // Every block-level element implicitly closes an open <p>
 for (const tag of P_CLOSING_ELEMENTS) {
     if (!AUTO_CLOSE.has(tag)) {
@@ -98,6 +91,34 @@ const RAW_CONTENT_ELEMENTS = new Set([
     ...RAW_TEXT_ELEMENTS,
     ...RCDATA_ELEMENTS,
 ]);
+
+// Maximum element nesting depth; deeper elements become siblings at the last allowed level
+const MAX_DEPTH = 512;
+
+// ===== Character helpers =====
+
+function isWhitespace(char) {
+    return (
+        char === ' ' ||
+        char === '\t' ||
+        char === '\n' ||
+        char === '\f' ||
+        char === '\r'
+    );
+}
+
+function isLetter(char) {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isValidTagChar(char) {
+    if (!char) return false;
+    return !isWhitespace(char) && char !== '>' && char !== '/';
+}
+
+// ===== Entity decoding =====
 
 function safeFromCodePoint(codePoint, fallback) {
     if (isNaN(codePoint)) return fallback;
@@ -148,26 +169,7 @@ function decodeEntities(str) {
     );
 }
 
-function isWhitespace(char) {
-    return (
-        char === ' ' ||
-        char === '\t' ||
-        char === '\n' ||
-        char === '\f' ||
-        char === '\r'
-    );
-}
-
-function isLetter(char) {
-    if (!char) return false;
-    const code = char.charCodeAt(0);
-    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-}
-
-function isValidTagChar(char) {
-    if (!char) return false;
-    return !isWhitespace(char) && char !== '>' && char !== '/';
-}
+// ===== Attribute parsing =====
 
 /**
  * Safely sets attribute on dictionary without prototype pollution
@@ -178,61 +180,6 @@ function setAttribute(attributes, name, value) {
         return;
     }
     attributes[name] = value;
-}
-
-/**
- * Helper to read text until a specific marker tag/substring is found.
- */
-function readUntil(html, start, marker) {
-    const index = html.indexOf(marker, start);
-    if (index === -1) {
-        return {
-            content: html.slice(start),
-            nextIndex: html.length,
-            found: false,
-        };
-    }
-    return {
-        content: html.slice(start, index),
-        nextIndex: index + marker.length,
-        found: true,
-    };
-}
-
-/**
- * Helper to find the index of the matching closing tag for RAW TEXT / RCDATA elements.
- */
-function findClosingTagIndex(html, lowerTagName, startIndex) {
-    const tagLen = lowerTagName.length;
-    let searchPos = startIndex;
-
-    while (searchPos < html.length) {
-        const closeStart = html.indexOf('</', searchPos);
-        if (closeStart === -1) {
-            return -1;
-        }
-
-        const candidateName = html
-            .slice(closeStart + 2, closeStart + 2 + tagLen)
-            .toLowerCase();
-
-        if (candidateName === lowerTagName) {
-            const nextChar = html[closeStart + 2 + tagLen];
-
-            if (
-                nextChar === undefined ||
-                nextChar === '>' ||
-                nextChar === '/' ||
-                isWhitespace(nextChar)
-            ) {
-                return closeStart;
-            }
-        }
-
-        searchPos = closeStart + 2;
-    }
-
-    return -1;
 }
 
 /**
@@ -332,6 +279,63 @@ function readAttributes(html, startIndex) {
     }
 
     return { attributes, end: -1, selfClosing: false };
+}
+
+// ===== Tokenizer =====
+
+/**
+ * Helper to read text until a specific marker tag/substring is found.
+ */
+function readUntil(html, start, marker) {
+    const index = html.indexOf(marker, start);
+    if (index === -1) {
+        return {
+            content: html.slice(start),
+            nextIndex: html.length,
+            found: false,
+        };
+    }
+    return {
+        content: html.slice(start, index),
+        nextIndex: index + marker.length,
+        found: true,
+    };
+}
+
+/**
+ * Helper to find the index of the matching closing tag for RAW TEXT / RCDATA elements.
+ */
+function findClosingTagIndex(html, lowerTagName, startIndex) {
+    const tagLen = lowerTagName.length;
+    let searchPos = startIndex;
+
+    while (searchPos < html.length) {
+        const closeStart = html.indexOf('</', searchPos);
+        if (closeStart === -1) {
+            return -1;
+        }
+
+        const candidateName = html
+            .slice(closeStart + 2, closeStart + 2 + tagLen)
+            .toLowerCase();
+
+        if (candidateName === lowerTagName) {
+            const nextChar = html[closeStart + 2 + tagLen];
+
+            if (
+                nextChar === undefined ||
+                nextChar === '>' ||
+                nextChar === '/' ||
+                isWhitespace(nextChar)
+            ) {
+                return closeStart;
+            }
+        }
+
+        searchPos = closeStart + 2;
+    }
+
+    return -1;
 }
 
 /**
@@ -467,6 +471,8 @@ function tokenize(html) {
     return tokens;
 }
 
+// ===== Tree builder =====
+
 /**
  * Builds an AST / JSON tree from token list.
  */
@@ -526,6 +532,9 @@ function buildTree(tokens) {
 
     return root;
 }
+
+// ===== Public API =====
+
 function html2json(htmlText) {
     // 10.1 Check input type
     if (typeof htmlText !== 'string') {
@@ -544,6 +553,16 @@ function html2json(htmlText) {
         };
     }
 }
+
+// ===== UI glue (provided by Jito) =====
+
+function convertHtml2JsonAndSet() {
+    const htmlTextAreaValue = document.getElementById('html').value;
+    const jsonObj = html2json(htmlTextAreaValue);
+    const jsonArea = document.getElementById('json');
+    jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
+}
+
 function showExample1() {
     const htmlExample = `<!DOCTYPE html>
 <html lang="en">
@@ -617,6 +636,8 @@ function showExample2() {
         2,
     );
 }
+
+// ===== Node.js export =====
 
 // Export for Node.js (CommonJS):
 if (typeof module !== 'undefined' && module.exports) {
