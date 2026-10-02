@@ -132,6 +132,17 @@ for (const input of invalidInputs) {
     console.log(ok ? '✅' : '❌', JSON.stringify(input) ?? String(input));
 }
 
+console.log('\n=== Abruptly closed empty comments ===');
+for (const input of ['<!--><p>Hello</p>', '<!---><p>Hello</p>']) {
+    const res = html2json(input);
+    const ok =
+        res.children.length === 2 &&
+        res.children[0].type === 'comment' &&
+        res.children[0].content === '' &&
+        res.children[1].tag === 'p';
+    console.log(ok ? '✅' : '❌', input);
+}
+
 console.log('\n=== Weird inputs ===');
 const weirdInputs = {
     '100,000 "<"': '<'.repeat(100000),

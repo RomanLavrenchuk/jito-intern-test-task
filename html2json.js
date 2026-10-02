@@ -405,6 +405,14 @@ function tokenize(html) {
 
         // 2. Comments <!-- ... -->
         if (html.startsWith('<!--', i)) {
+            // Browsers treat <!--> and <!---> as complete empty comments.
+            // Without this check, the rest of the document would become one comment.
+            if (html.startsWith('<!-->', i) || html.startsWith('<!--->', i)) {
+                tokens.push({ type: 'comment', content: '' });
+                i += html.startsWith('<!-->', i) ? 5 : 6;
+                continue;
+            }
+
             const { content, nextIndex, found } = readUntil(html, i + 4, '-->');
             tokens.push({ type: 'comment', content });
             if (!found) break;
