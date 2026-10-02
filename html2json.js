@@ -76,7 +76,7 @@ const AUTO_CLOSE_RULES = [
 
 const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
 
-// Every block-level element implicitly closes an open <p>
+// Every element in P_CLOSING_ELEMENTS implicitly closes an open <p>
 for (const tag of P_CLOSING_ELEMENTS) {
     if (!AUTO_CLOSE.has(tag)) {
         AUTO_CLOSE.set(tag, new Set());
@@ -97,6 +97,11 @@ const MAX_DEPTH = 512;
 
 // ===== Character helpers =====
 
+/**
+ * Checks whether a character is HTML whitespace (space, tab, LF, FF, CR).
+ * @param {string} char - A single character.
+ * @returns {boolean} True if the character is whitespace.
+ */
 function isWhitespace(char) {
     return (
         char === ' ' ||
@@ -107,12 +112,22 @@ function isWhitespace(char) {
     );
 }
 
+/**
+ * Checks whether a character is an ASCII letter (a-z, A-Z).
+ * @param {string | undefined} char - A single character, or undefined past end of input.
+ * @returns {boolean} True if the character is an ASCII letter.
+ */
 function isLetter(char) {
     if (!char) return false;
     const code = char.charCodeAt(0);
     return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
 }
 
+/**
+ * Checks whether a character can be part of a tag name.
+ * @param {string | undefined} char - A single character, or undefined past end of input.
+ * @returns {boolean} True unless the character is whitespace, '>', '/' or missing.
+ */
 function isValidTagChar(char) {
     if (!char) return false;
     return !isWhitespace(char) && char !== '>' && char !== '/';
@@ -120,9 +135,12 @@ function isValidTagChar(char) {
 
 // ===== Entity decoding =====
 
-function safeFromCodePoint(codePoint, fallback) {
-    if (isNaN(codePoint)) return fallback;
-
+/**
+ * Converts a numeric character reference to a string, replacing invalid code points.
+ * @param {number} codePoint - Integer code point parsed from &#...; or &#x...;.
+ * @returns {string} The character, or U+FFFD for 0, surrogates and values above U+10FFFF.
+ */
+function safeFromCodePoint(codePoint) {
     // Reject code points outside the Unicode range and UTF-16 surrogates (0xD800–0xDFFF)
     if (
         codePoint <= 0 ||
@@ -132,13 +150,15 @@ function safeFromCodePoint(codePoint, fallback) {
         return '\uFFFD'; // Replacement character
     }
 
-    try {
-        return String.fromCodePoint(codePoint);
-    } catch {
-        return '\uFFFD';
-    }
+    return String.fromCodePoint(codePoint);
 }
 
+/**
+ * Decodes numeric (&#169;, &#xA9;) and known named (&copy;) character references.
+ * Unknown named references are left unchanged.
+ * @param {string} str - Raw text or attribute value.
+ * @returns {string} The decoded string.
+ */
 function decodeEntities(str) {
     if (!str || typeof str !== 'string' || !str.includes('&')) {
         return str;
@@ -150,13 +170,13 @@ function decodeEntities(str) {
             // 1. Hexadecimal: &#xA9; or &#XA9;
             if (body.startsWith('#x') || body.startsWith('#X')) {
                 const codePoint = parseInt(body.slice(2), 16);
-                return safeFromCodePoint(codePoint, match);
+                return safeFromCodePoint(codePoint);
             }
 
             // 2. Decimal: &#169;
             if (body.startsWith('#')) {
                 const codePoint = parseInt(body.slice(1), 10);
-                return safeFromCodePoint(codePoint, match);
+                return safeFromCodePoint(codePoint);
             }
 
             // 3. Named: &copy;
@@ -172,8 +192,11 @@ function decodeEntities(str) {
 // ===== Attribute parsing =====
 
 /**
- * Safely sets attribute on dictionary without prototype pollution
- * and respects first-attribute-wins rule.
+ * Sets an attribute unless it is already present (first occurrence wins, as in browsers).
+ * @param {Object<string, string>} attributes - Prototype-less attribute dictionary.
+ * @param {string} name - Lowercased attribute name.
+ * @param {string} value - Decoded attribute value.
+ * @returns {void}
  */
 function setAttribute(attributes, name, value) {
     if (Object.prototype.hasOwnProperty.call(attributes, name)) {
@@ -183,7 +206,11 @@ function setAttribute(attributes, name, value) {
 }
 
 /**
- * Parses tag attributes into a key-value dictionary and identifies self-closing state.
+ * Parses tag attributes into a key-value dictionary and detects a self-closing '/>'.
+ * @param {string} html - Full HTML source.
+ * @param {number} startIndex - Index right after the tag name.
+ * @returns {{attributes: Object<string, string>, end: number, selfClosing: boolean}}
+ *   Parsed attributes, index of the closing '>' (-1 if the tag is unterminated), and the self-closing flag.
  */
 function readAttributes(html, startIndex) {
     const attributes = Object.create(null);
@@ -284,7 +311,12 @@ function readAttributes(html, startIndex) {
 // ===== Tokenizer =====
 
 /**
- * Helper to read text until a specific marker tag/substring is found.
+ * Reads text from a position up to the next occurrence of a marker.
+ * @param {string} html - Full HTML source.
+ * @param {number} start - Index to start reading from.
+ * @param {string} marker - Substring that ends the read, e.g. '-->'.
+ * @returns {{content: string, nextIndex: number, found: boolean}}
+ *   Text before the marker, index after the marker (or end of input), and whether the marker was found.
  */
 function readUntil(html, start, marker) {
     const index = html.indexOf(marker, start);
@@ -303,7 +335,11 @@ function readUntil(html, start, marker) {
 }
 
 /**
- * Helper to find the index of the matching closing tag for RAW TEXT / RCDATA elements.
+ * Finds the matching closing tag of a RAW TEXT / RCDATA element (case-insensitive).
+ * @param {string} html - Full HTML source.
+ * @param {string} lowerTagName - Lowercased tag name, e.g. 'script'.
+ * @param {number} startIndex - Index right after the opening tag.
+ * @returns {number} Index of '</' of the closing tag, or -1 if there is none.
  */
 function findClosingTagIndex(html, lowerTagName, startIndex) {
     const tagLen = lowerTagName.length;
@@ -339,7 +375,9 @@ function findClosingTagIndex(html, lowerTagName, startIndex) {
 }
 
 /**
- * Tokenizes raw HTML string into structured tokens.
+ * Splits an HTML string into a flat list of tokens.
+ * @param {string} html - HTML source.
+ * @returns {Array<Object>} Tokens of type 'text', 'comment', 'doctype', 'startTag' or 'endTag'.
  */
 function tokenize(html) {
     const tokens = [];
@@ -474,7 +512,9 @@ function tokenize(html) {
 // ===== Tree builder =====
 
 /**
- * Builds an AST / JSON tree from token list.
+ * Builds a nested tree from tokens, applying void elements, implicit closing and MAX_DEPTH.
+ * @param {Array<Object>} tokens - Output of tokenize().
+ * @returns {{type: 'root', children: Array<Object>}} The root node of the tree.
  */
 function buildTree(tokens) {
     const root = { type: 'root', children: [] };
@@ -535,13 +575,19 @@ function buildTree(tokens) {
 
 // ===== Public API =====
 
+/**
+ * Converts an HTML string into a JSON-serializable tree.
+ * @param {string} htmlText - HTML source.
+ * @returns {{type: 'root', children: Array<Object>, error?: string}}
+ *   The root node; an empty root for non-string input, with `error` set if parsing threw.
+ */
 function html2json(htmlText) {
-    // 10.1 Check input type
+    // Non-string input yields an empty tree
     if (typeof htmlText !== 'string') {
         return { type: 'root', children: [] };
     }
 
-    // 10.3 Try/catch safety net
+    // Safety net: never throw to the caller
     try {
         const tokens = tokenize(htmlText);
         return buildTree(tokens);
@@ -556,6 +602,10 @@ function html2json(htmlText) {
 
 // ===== UI glue (provided by Jito) =====
 
+/**
+ * Converts the HTML from the #html textarea and writes the JSON into #json.
+ * @returns {void}
+ */
 function convertHtml2JsonAndSet() {
     const htmlTextAreaValue = document.getElementById('html').value;
     const jsonObj = html2json(htmlTextAreaValue);
@@ -563,6 +613,10 @@ function convertHtml2JsonAndSet() {
     jsonArea.textContent = JSON.stringify(jsonObj, null, 2);
 }
 
+/**
+ * Fills the page with input example 1 (a full HTML document).
+ * @returns {void}
+ */
 function showExample1() {
     const htmlExample = `<!DOCTYPE html>
 <html lang="en">
@@ -615,6 +669,10 @@ function showExample1() {
     );
 }
 
+/**
+ * Fills the page with input example 2 (a small fragment with a long textarea).
+ * @returns {void}
+ */
 function showExample2() {
     const htmlExample = `<div>
 <p>Hello world!</p>
