@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Real World Sample Page</title>
+  <style>
+    body { font-family: sans-serif; }
+    div > p { color: #333; }
+  </style>
+</head>
+<body>
+  <!-- Main Header -->
+  <header>
+    <h1>User Registration</h1>
+  </header>
+
+  <main>
+    <form action="/register" method="POST">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+
+      <label for="role">Role:</label>
+      <select id="role" name="role">
+        <option value="user">User
+        <option value="admin">Admin
+      </select>
+
+      <button type="submit">Submit</button>
+    </form>
+
+    <section>
+      <h2>Active Users</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID
+            <th>Name
+        <tbody>
+          <tr>
+            <td>1
+            <td>Alice
+          <tr>
+            <td>2
+            <td>Bob
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const a = 1;
+    const b = 2;
+    if (a < b && b > 0) {
+      console.log("Valid script block with < and > symbols");
+    }
+  </script>
+</body>
+</html>

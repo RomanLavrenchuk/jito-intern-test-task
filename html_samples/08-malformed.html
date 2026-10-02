@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <!-- Short empty comment test -->
+  <!-->
+  <!--->
+
+  <!-- Unterminated & mismatched tags -->
+  <div>
+    <span>Unclosed span
+    <p>Cross <em>nested </p> tags</em>
+  </div>
+  </div> <!-- Extra closing div -->
+
+  <!-- Unclosed quotes in attributes -->
+  <a href="https://example.com target="_blank">Broken link</a>
+  <input type="text value="no close quote">
+
+  <!-- Unclosed element at end of file -->
+  <section>
+    <h2>Heading</h2>
+    <p>Trailing open paragraph
