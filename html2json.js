@@ -41,7 +41,7 @@ const NAMED_ENTITIES = Object.assign(Object.create(null), {
     cent: '¢',
 });
 
-const BLOCK_ELEMENTS = [
+const P_CLOSING_ELEMENTS = [
     'p',
     'div',
     'ul',
@@ -84,7 +84,7 @@ const AUTO_CLOSE = new Map(AUTO_CLOSE_RULES);
 const MAX_DEPTH = 512;
 
 // Every block-level element implicitly closes an open <p>
-for (const tag of BLOCK_ELEMENTS) {
+for (const tag of P_CLOSING_ELEMENTS) {
     if (!AUTO_CLOSE.has(tag)) {
         AUTO_CLOSE.set(tag, new Set());
     }
