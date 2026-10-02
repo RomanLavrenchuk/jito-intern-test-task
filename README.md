@@ -147,10 +147,11 @@ AI use was required for this task. I used Claude throughout, and the **complete 
 - the share link is in `chatgpt_chat.txt` (the file name required by the task),
 - a PDF export of the conversation is in `claude_chat.pdf`.
 
+I also used Claude Code in VS Code for code review, refactoring and the tests. Those sessions are not part of the share link.
+
 How I used it:
 
 - **A step-by-step plan.** At the start I asked for a plan that split the work into small steps (tokenizing plain text, tags, attributes, the tree builder, comments, raw text, entities, implicit closing, tests, README). I then implemented and committed one step at a time. The git history follows the same order.
 - **Explanations.** For each step I asked why browsers behave the way they do (RAW TEXT vs RCDATA, why `/>` matters for SVG, why `JSON.stringify` needs a depth limit) before deciding how my parser should handle it. The reasoning in this README comes from those discussions.
 - **Review of every step.** After writing each part, I asked for a review and fixed the problems it found before moving on.
 - **Finding bugs.** I used the AI to look for inputs that could break the parser. Examples are `<!-->` swallowing the rest of the document, `__proto__` as an attribute name, and invalid code points in numeric entities. Each one became a fix plus a test.
-
